@@ -37,8 +37,7 @@ yakit-hotpatch-skill/
     └── examples/
         ├── generic-wrapped-json-mitm-hotpatch.yak
         ├── generic-request-resign-hotpatch.yak
-        ├── bizcontent-mitm-hotpatch.yak
-        └── bizcontent_codec.py
+        └── bizcontent-mitm-hotpatch.yak
 ```
 
 ## Included templates
@@ -86,14 +85,6 @@ File:
 - `references/examples/bizcontent-mitm-hotpatch.yak`
 
 This is a concrete AES-ECB plus Base64 example for a wrapped `bizContent` workflow.
-
-### 4. Local verification helper
-
-File:
-
-- `references/examples/bizcontent_codec.py`
-
-Use it to verify ciphertext encoding and algorithm assumptions outside Yakit before writing the final hotpatch.
 
 ## Quick start
 

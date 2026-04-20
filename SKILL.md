@@ -249,8 +249,6 @@ Root cause candidates:
   - generic template for old-style request re-signing
 - `references/examples/bizcontent-mitm-hotpatch.yak`
   - concrete AES-ECB plus Base64 example
-- `references/examples/bizcontent_codec.py`
-  - local helper script for verifying ciphertext assumptions outside Yakit
 
 ## Reference Files
 
