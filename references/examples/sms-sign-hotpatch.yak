@@ -1,0 +1,161 @@
+/*
+MITM interactive hot patch for 无锡e贸促短信接口 sign 自动重签。
+
+Behavior:
+1. 仅处理 /wxApi/user/sendSmsCodeHandler.ashx
+2. 请求进入编辑器时保持原始 form body，不做额外变形
+3. 请求放行前自动按当前 body 里的 openId、token、user_id 重算 sign
+4. 如果 body 缺少 openId 或 token，可用自定义请求头补：
+   - X-Yak-SMS-OpenId
+   - X-Yak-SMS-Token
+
+Sign formula:
+MD5( bizPrefix + DD + MM + YYYY + salt + openId + token + userId ).upper()
+*/
+
+cli.check()
+
+targetPath = cli.String("targetPath")
+if targetPath == "" {
+    targetPath = "/wxApi/user/sendSmsCodeHandler.ashx"
+}
+
+bizPrefix = cli.String("bizPrefix")
+if bizPrefix == "" {
+    bizPrefix = "jhs-admin"
+}
+
+salt = cli.String("salt")
+if salt == "" {
+    salt = "jhs-maocuhui"
+}
+
+defaultUserId = cli.String("defaultUserId")
+if defaultUserId == "" {
+    defaultUserId = "0"
+}
+
+debug = cli.String("debug")
+if debug == "" {
+    debug = "1"
+}
+
+yakit_output(sprintf("[sms-hotpatch] loaded targetPath=%s bizPrefix=%s", targetPath, bizPrefix))
+
+getDateParts = func() {
+    ds = date()
+    parts = str.Split(ds, "-")
+    if len(parts) != 3 {
+        yakit_output(sprintf("[sms-hotpatch][err] unexpected date format: %s", ds))
+        return "", "", "", false
+    }
+    return parts[2], parts[1], parts[0], true
+}
+
+calcSign = func(openId, token, userId) {
+    dd, mm, yyyy, ok = getDateParts()
+    if !ok {
+        return "", ""
+    }
+    raw = bizPrefix + dd + mm + yyyy + salt + openId + token + userId
+    return str.ToUpper(codec.Md5(raw)), raw
+}
+
+isTarget = func(packet) {
+    path = poc.GetHTTPRequestPathWithoutQuery(packet)
+    if path == "" {
+        return false
+    }
+    return path == targetPath
+}
+
+resignPacket = func(packet) {
+    if !isTarget(packet) {
+        return packet, false
+    }
+
+    params = poc.GetAllHTTPPacketPostParams(packet)
+    if params == nil {
+        return packet, false
+    }
+
+    openId = ""
+    token = ""
+    userId = defaultUserId
+
+    if "openId" in params {
+        openId = params["openId"]
+    }
+    if "token" in params {
+        token = params["token"]
+    }
+    if "user_id" in params {
+        userId = params["user_id"]
+    }
+
+    if openId == "" {
+        openId = poc.GetHTTPPacketHeader(packet, "X-Yak-SMS-OpenId")
+    }
+    if token == "" {
+        token = poc.GetHTTPPacketHeader(packet, "X-Yak-SMS-Token")
+    }
+    if userId == "" {
+        userId = defaultUserId
+    }
+
+    if openId == "" || token == "" {
+        if debug == "1" {
+            yakit_output(sprintf("[sms-hotpatch][skip] missing openId/token path=%s", poc.GetHTTPRequestPathWithoutQuery(packet)))
+        }
+        return packet, false
+    }
+
+    newSign, raw = calcSign(openId, token, userId)
+    if newSign == "" {
+        return packet, false
+    }
+
+    params["openId"] = openId
+    params["token"] = token
+    params["sign"] = newSign
+
+    if "user_id" in params {
+        params["user_id"] = userId
+    }
+
+    newPacket = poc.ReplaceAllHTTPPacketPostParamsWithoutEscape(packet, params)
+    newPacket = poc.FixHTTPRequest(newPacket)
+
+    if debug == "1" {
+        yakit_output(sprintf("[sms-hotpatch] sign=%s raw=%s", newSign, raw))
+    }
+    return newPacket, true
+}
+
+hijackHTTPRequest = func(isHttps, url, req, forward, drop) {
+    forward(req)
+}
+
+hijackRequest = func(isHttps, url, req, forward, drop) {
+    forward(req)
+}
+
+beforeRequest = func(req) {
+    newReq, changed = resignPacket(req)
+    if changed {
+        return []byte(newReq)
+    }
+    return []byte(req)
+}
+
+hijackHTTPResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    forward(rsp)
+}
+
+hijackResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    forward(rsp)
+}
+
+afterRequest = func(isHttps, oreq, req, orsp, rsp) {
+    return []byte(rsp)
+}

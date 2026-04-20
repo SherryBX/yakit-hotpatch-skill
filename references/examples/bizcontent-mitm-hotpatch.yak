@@ -1,0 +1,227 @@
+/*
+MITM interactive hijack hot patch for 宜兴陶瓷博物馆 bizContent encrypted traffic.
+Behavior:
+1. Request enters editor as plaintext JSON when body contains bizContent.
+2. Released request is re-encrypted to bizContent before going upstream.
+3. Response enters editor as plaintext JSON when body contains bizContent.
+4. Released response is re-encrypted before going back to the client.
+
+Algorithm:
+- AES-128-ECB
+- PKCS7
+- key: d9XBpRQPivd3l51E
+*/
+
+cli.check()
+
+bizKey = "d9XBpRQPivd3l51E"
+reqMarkerHeader = "X-Yak-Biz-Plain"
+flowIdHeader = "X-Yak-Biz-Flow"
+
+rspTemplateCache = {}
+
+yakit_output("[mitm-hotpatch] bizContent AES-128-ECB hotpatch loaded")
+
+tryParseJson = func(raw) {
+    obj = nil
+    ok = false
+    try {
+        obj = json.loads(raw)
+        ok = true
+    } catch err {
+        ok = false
+    }
+    return obj, ok
+}
+
+compactJsonIfPossible = func(raw) {
+    obj, ok = tryParseJson(raw)
+    if ok {
+        return json.dumps(obj)
+    }
+    return raw
+}
+
+getBodyObj = func(packet) {
+    body = string(poc.GetHTTPPacketBody(packet))
+    if body == "" {
+        return nil, false
+    }
+    return tryParseJson(body)
+}
+
+fixReq = func(packet) {
+    return poc.FixHTTPRequest(packet)
+}
+
+fixRsp = func(packet) {
+    return poc.FixHTTPResponse(packet)
+}
+
+makeFlowId = func(req) {
+    return codec.Md5(req)
+}
+
+encryptBizContent = func(plain) {
+    cipherBytes = codec.AESECBEncryptWithPKCS7Padding([]byte(bizKey), plain, nil)~
+    return codec.EncodeBase64(cipherBytes)
+}
+
+decryptBizContent = func(cipherHex) {
+    cipherBytes = codec.DecodeBase64(cipherHex)~
+    plainBytes = codec.AESECBDecryptWithPKCS7Padding([]byte(bizKey), cipherBytes, nil)~
+    return string(plainBytes)
+}
+
+cacheRspTemplate = func(flowId, obj) {
+    rspTemplateCache[flowId] = obj
+}
+
+getRspTemplate = func(flowId) {
+    if flowId in rspTemplateCache {
+        return rspTemplateCache[flowId], true
+    }
+    return nil, false
+}
+
+decryptReqForView = func(packet) {
+    obj, ok = getBodyObj(packet)
+    if !ok {
+        return packet, false
+    }
+    if ! ("bizContent" in obj) {
+        return packet, false
+    }
+
+    plain = decryptBizContent(obj["bizContent"])
+    plain = compactJsonIfPossible(plain)
+
+    packet = poc.ReplaceHTTPPacketBody(packet, plain)
+    packet = poc.ReplaceHTTPPacketHeader(packet, reqMarkerHeader, "1")
+    packet = fixReq(packet)
+    return packet, true
+}
+
+encryptReqForServer = func(packet) {
+    marker = poc.GetHTTPPacketHeader(packet, reqMarkerHeader)
+    if marker == "" {
+        return packet, false
+    }
+
+    plain = string(poc.GetHTTPPacketBody(packet))
+    plain = compactJsonIfPossible(plain)
+
+    newBody = json.dumps({
+        "bizContent": encryptBizContent(plain),
+    })
+
+    packet = poc.ReplaceHTTPPacketBody(packet, newBody)
+    packet = poc.DeleteHTTPPacketHeader(packet, reqMarkerHeader)
+    packet = fixReq(packet)
+    return packet, true
+}
+
+decryptRspForView = func(req, packet) {
+    obj, ok = getBodyObj(packet)
+    if !ok {
+        return packet, false
+    }
+    if ! ("bizContent" in obj) {
+        return packet, false
+    }
+
+    flowId = makeFlowId(req)
+    cacheRspTemplate(flowId, obj)
+
+    plain = decryptBizContent(obj["bizContent"])
+    plain = compactJsonIfPossible(plain)
+
+    packet = poc.ReplaceHTTPPacketBody(packet, plain)
+    packet = poc.ReplaceHTTPPacketHeader(packet, reqMarkerHeader, "1")
+    packet = poc.ReplaceHTTPPacketHeader(packet, flowIdHeader, flowId)
+    packet = fixRsp(packet)
+    return packet, true
+}
+
+encryptRspForClient = func(req, rsp) {
+    marker = poc.GetHTTPPacketHeader(rsp, reqMarkerHeader)
+    if marker == "" {
+        return rsp, false
+    }
+
+    flowId = poc.GetHTTPPacketHeader(rsp, flowIdHeader)
+    if flowId == "" {
+        flowId = makeFlowId(req)
+    }
+
+    tmpl, ok = getRspTemplate(flowId)
+    if !ok {
+        yakit_output(sprintf("[rsp re-encrypt] missing template flowId=%s", flowId))
+        return rsp, false
+    }
+
+    plain = string(poc.GetHTTPPacketBody(rsp))
+    plain = compactJsonIfPossible(plain)
+    tmpl["bizContent"] = encryptBizContent(plain)
+    newBody = json.dumps(tmpl)
+
+    rsp = poc.ReplaceHTTPPacketBody(rsp, newBody)
+    rsp = poc.DeleteHTTPPacketHeader(rsp, reqMarkerHeader)
+    rsp = poc.DeleteHTTPPacketHeader(rsp, flowIdHeader)
+    rsp = fixRsp(rsp)
+    return rsp, true
+}
+
+_handleReqHijack = func(isHttps, url, req, forward, drop) {
+    newReq, changed = decryptReqForView(req)
+    if changed {
+        yakit_output(sprintf("[req decrypt] %s", url))
+        forward(newReq)
+        return
+    }
+    forward(req)
+}
+
+_handleRspHijackEx = func(isHttps, url, req, rsp, forward, drop) {
+    newRsp, changed = decryptRspForView(req, rsp)
+    if changed {
+        yakit_output(sprintf("[rsp decrypt] %s", url))
+        forward(newRsp)
+        return
+    }
+    forward(rsp)
+}
+
+hijackHTTPRequest = func(isHttps, url, req, forward, drop) {
+    _handleReqHijack(isHttps, url, req, forward, drop)
+}
+
+hijackRequest = func(isHttps, url, req, forward, drop) {
+    _handleReqHijack(isHttps, url, req, forward, drop)
+}
+
+beforeRequest = func(req) {
+    newReq, changed = encryptReqForServer(req)
+    if changed {
+        yakit_output("[req re-encrypt] ok")
+        return []byte(newReq)
+    }
+    return []byte(req)
+}
+
+hijackHTTPResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    _handleRspHijackEx(isHttps, url, req, rsp, forward, drop)
+}
+
+hijackResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    _handleRspHijackEx(isHttps, url, req, rsp, forward, drop)
+}
+
+afterRequest = func(isHttps, oreq, req, orsp, rsp) {
+    newRsp, changed = encryptRspForClient(oreq, rsp)
+    if changed {
+        yakit_output("[rsp re-encrypt] ok")
+        return []byte(newRsp)
+    }
+    return []byte(rsp)
+}

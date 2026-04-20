@@ -1,0 +1,4 @@
+version: 1
+display_name: Yakit Hotpatch Skill
+short_description: Build and debug Yakit MITM hotpatch scripts in Yaklang.
+default_prompt: Create or fix a Yakit MITM hotpatch in Yaklang for encrypted traffic, request re-signing, or hook debugging. Preserve wrapper formats, choose the correct hook layout, and explain any encoding or signature assumptions.
