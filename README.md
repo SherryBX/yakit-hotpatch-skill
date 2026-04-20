@@ -2,6 +2,12 @@
 
 > Reusable Yakit MITM hotpatch skill for Yaklang, focused on wrapped JSON decrypt-repack and old-style request re-sign templates.
 
+[![GitHub repo visibility](https://img.shields.io/badge/repo-public-brightgreen)](https://github.com/SherryBX/yakit-hotpatch-skill)
+[![Yaklang](https://img.shields.io/badge/language-Yaklang-blue)](https://github.com/SherryBX/yakit-hotpatch-skill)
+[![Yakit MITM](https://img.shields.io/badge/Yakit-MITM%20Hotpatch-purple)](https://github.com/SherryBX/yakit-hotpatch-skill)
+[![Templates](https://img.shields.io/badge/templates-generic%20%2B%20reusable-orange)](https://github.com/SherryBX/yakit-hotpatch-skill/tree/main/references/examples)
+[![GitHub last commit](https://img.shields.io/github/last-commit/SherryBX/yakit-hotpatch-skill)](https://github.com/SherryBX/yakit-hotpatch-skill/commits/main)
+
 ## Overview
 
 `yakit-hotpatch-skill` is a reusable skill pack for building and debugging **Yakit MITM hotpatch scripts in Yaklang**.
