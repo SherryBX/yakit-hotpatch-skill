@@ -1,29 +1,103 @@
 # yakit-hotpatch-skill
 
-Reusable Yakit MITM hotpatch skill for Yaklang, focused on wrapped JSON decrypt-repack and old-style request re-sign templates.
+> Reusable Yakit MITM hotpatch skill for Yaklang, focused on wrapped JSON decrypt-repack and old-style request re-sign templates.
 
-## What this repository is for
+## Overview
 
-This skill helps you build and debug Yakit MITM hotpatch scripts in **Yaklang**.
+`yakit-hotpatch-skill` is a reusable skill pack for building and debugging **Yakit MITM hotpatch scripts in Yaklang**.
 
-It targets two high-frequency workflows:
+It is designed for two common traffic-handling workflows:
 
-1. **Wrapped JSON decrypt-repack**
-   Request or response enters the MITM editor as plaintext, then gets packed back before release.
-2. **Old-style request re-sign**
-   Request body stays readable, and fields such as `sign` are rebuilt in `beforeRequest`.
+- **Wrapped JSON decrypt-repack**
+  Show encrypted request or response data as plaintext in the MITM editor, then pack it back before release.
+- **Old-style request re-sign**
+  Keep request bodies readable and only rebuild fields such as `sign`, `token`, or checksums in `beforeRequest`.
 
-## Best fit scenarios
+This repository is meant to save time when you need a reliable starting point instead of rebuilding hotpatch structure from scratch every time.
 
-Use this skill when you need to:
+## Best For
 
-- fix Yakit MITM hotload compile errors caused by JavaScript being pasted into Yaklang
+Use this repository when you need to:
+
+- fix Yakit hotload compile errors caused by JavaScript being pasted into Yaklang
 - expose encrypted mini-program traffic as plaintext in the editor
 - rebuild wrapped fields such as `bizContent`, `signContent`, or similar ciphertext containers
-- preserve response wrapper formats while editing inner plaintext
-- recalculate form request signatures like `sign`, `token`, checksum fields, or day-based digests
+- preserve response wrapper formats while editing only the inner plaintext
+- recalculate request signatures for form bodies such as `sign`, `token`, and other digest fields
 
-## Repository layout
+## Included Templates
+
+### 1. Generic wrapped JSON MITM template
+
+**File**
+
+`references/examples/generic-wrapped-json-mitm-hotpatch.yak`
+
+**Use it when**
+
+- ciphertext is stored inside a JSON field
+- requests and responses should be shown as plaintext in the editor
+- release-time traffic must be rebuilt into the original wrapper
+
+**What you need to replace**
+
+- encrypted field name
+- `decryptPayload(...)`
+- `encryptPayload(...)`
+- optional marker headers
+
+---
+
+### 2. Generic request re-sign template
+
+**File**
+
+`references/examples/generic-request-resign-hotpatch.yak`
+
+**Use it when**
+
+- traffic is already plaintext
+- request body is usually `application/x-www-form-urlencoded`
+- only fields such as `sign` need recalculation before upstream
+
+**What you need to replace**
+
+- `targetPath`
+- `calcSign(params)`
+- optional default field handling
+
+---
+
+### 3. Concrete wrapped JSON example
+
+**File**
+
+`references/examples/bizcontent-mitm-hotpatch.yak`
+
+This is a concrete AES-ECB plus Base64 example for a wrapped `bizContent` workflow.
+
+## Quick Start
+
+### Option A: Wrapped JSON decrypt-repack
+
+1. Copy `generic-wrapped-json-mitm-hotpatch.yak`
+2. Replace the encrypted field name
+3. Implement `decryptPayload(...)`
+4. Implement `encryptPayload(...)`
+5. Load the script into Yakit MITM hotpatch
+6. Confirm the request enters the editor as plaintext
+7. Confirm the released traffic is packed back correctly
+
+### Option B: Request re-sign
+
+1. Copy `generic-request-resign-hotpatch.yak`
+2. Set `targetPath`
+3. Implement `calcSign(params)`
+4. Load the script into Yakit MITM hotpatch
+5. Modify the request as needed
+6. Release and verify that `sign` was rebuilt
+
+## Repository Structure
 
 ```text
 yakit-hotpatch-skill/
@@ -40,88 +114,21 @@ yakit-hotpatch-skill/
         └── bizcontent-mitm-hotpatch.yak
 ```
 
-## Included templates
-
-### 1. Generic wrapped JSON MITM template
-
-File:
-
-- `references/examples/generic-wrapped-json-mitm-hotpatch.yak`
-
-Use it when:
-
-- ciphertext is stored inside a JSON field
-- request and response should be shown as plaintext in the editor
-- release-time traffic must be packed back into the original wrapper
-
-You only need to replace:
-
-- encrypted field name
-- encrypt and decrypt helpers
-- optional marker header names
-
-### 2. Generic request re-sign template
-
-File:
-
-- `references/examples/generic-request-resign-hotpatch.yak`
-
-Use it when:
-
-- traffic is already plaintext
-- request body is usually form-urlencoded
-- only fields like `sign` need to be recalculated before upstream
-
-You only need to replace:
-
-- target path
-- `calcSign(params)` logic
-- optional default field handling
-
-### 3. Concrete example
-
-File:
-
-- `references/examples/bizcontent-mitm-hotpatch.yak`
-
-This is a concrete AES-ECB plus Base64 example for a wrapped `bizContent` workflow.
-
-## Quick start
-
-### Wrapped JSON flow
-
-1. Copy `generic-wrapped-json-mitm-hotpatch.yak`
-2. Replace the encrypted field name
-3. Implement `decryptPayload(...)`
-4. Implement `encryptPayload(...)`
-5. Load into Yakit MITM hotpatch
-6. Verify request enters editor as plaintext
-7. Verify release-time traffic is packed back correctly
-
-### Request re-sign flow
-
-1. Copy `generic-request-resign-hotpatch.yak`
-2. Set `targetPath`
-3. Implement `calcSign(params)`
-4. Load into Yakit MITM hotpatch
-5. Modify the request as needed
-6. Release and confirm `sign` was rebuilt
-
-## Common troubleshooting
+## Common Problems
 
 ### Hotpatch compile error
 
-If the log mentions tokens such as:
+If logs mention tokens such as:
 
 - `const`
 - `require("crypto")`
 - `function tryParseJSON`
 
-the script was written in JavaScript and Yakit never loaded it.
+then the script was written in JavaScript and Yakit never loaded it.
 
-### Request still looks encrypted in the editor
+### Request is still encrypted in the editor
 
-Check:
+Check these in order:
 
 1. whether the hotpatch actually loaded
 2. whether the path filter matched
@@ -140,9 +147,11 @@ Check:
 
 Check:
 
-1. whether you cached the original response wrapper
+1. whether the original response wrapper was cached
 2. whether flow IDs are stable
 3. whether only the encrypted field was replaced during re-pack
+
+## Reference Notes
 
 For more detail, read:
 
@@ -152,5 +161,5 @@ For more detail, read:
 ## Notes
 
 - This repository focuses on Yakit MITM hotpatch usage in **Yaklang**
-- The templates are meant to be copied and adapted, not used unchanged
+- The templates are intended to be copied and adapted
 - Always verify encoding and signing assumptions with a real sample before debugging hook behavior
