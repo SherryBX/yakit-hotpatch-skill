@@ -241,6 +241,17 @@ Root cause candidates:
 - add debug logs during iteration
 - remove assumptions about timestamp fields until code proves them
 
+## Reusable Templates
+
+- `references/examples/generic-wrapped-json-mitm-hotpatch.yak`
+  - generic template for interactive decrypt-edit-reencrypt flows
+- `references/examples/generic-request-resign-hotpatch.yak`
+  - generic template for old-style request re-signing
+- `references/examples/bizcontent-mitm-hotpatch.yak`
+  - concrete AES-ECB plus Base64 example
+- `references/examples/bizcontent_codec.py`
+  - local helper script for verifying ciphertext assumptions outside Yakit
+
 ## Reference Files
 
 - `references/patterns.md`

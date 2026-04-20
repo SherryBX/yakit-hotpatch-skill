@@ -49,6 +49,10 @@ Use when:
 
 Response path can stay pass-through.
 
+### Recommended reusable template
+
+- `references/examples/generic-request-resign-hotpatch.yak`
+
 ## Pattern 3. Base64 vs hex verification
 
 Never guess.
@@ -71,3 +75,12 @@ Common flow:
 4. verify with one known request
 
 If a formula uses only day, month, year, changing minute values will not help.
+
+## Pattern 5. Template selection
+
+Use:
+
+- `generic-wrapped-json-mitm-hotpatch.yak`
+  - when ciphertext is wrapped inside JSON and editor should show plaintext
+- `generic-request-resign-hotpatch.yak`
+  - when traffic is already readable and only fields such as `sign` need rebuilding

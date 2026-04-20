@@ -1,0 +1,218 @@
+/*
+Generic MITM interactive hot patch for wrapped encrypted JSON traffic.
+
+Replace these placeholders before use:
+- YOUR_FIELD_NAME
+- YOUR_REQ_MARKER
+- YOUR_FLOW_MARKER
+- decryptPayload(...)
+- encryptPayload(...)
+*/
+
+cli.check()
+
+encryptedField = "YOUR_FIELD_NAME"
+reqMarkerHeader = "X-Yak-Req-Plain"
+flowIdHeader = "X-Yak-Flow-Id"
+
+rspTemplateCache = {}
+
+tryParseJson = func(raw) {
+    obj = nil
+    ok = false
+    try {
+        obj = json.loads(raw)
+        ok = true
+    } catch err {
+        ok = false
+    }
+    return obj, ok
+}
+
+compactJsonIfPossible = func(raw) {
+    obj, ok = tryParseJson(raw)
+    if ok {
+        return json.dumps(obj)
+    }
+    return raw
+}
+
+getBodyObj = func(packet) {
+    body = string(poc.GetHTTPPacketBody(packet))
+    if body == "" {
+        return nil, false
+    }
+    return tryParseJson(body)
+}
+
+fixReq = func(packet) {
+    return poc.FixHTTPRequest(packet)
+}
+
+fixRsp = func(packet) {
+    return poc.FixHTTPResponse(packet)
+}
+
+makeFlowId = func(req) {
+    return codec.Md5(req)
+}
+
+decryptPayload = func(cipherText) {
+    /*
+    Example:
+    - Base64 decode
+    - AES or DES decrypt
+    - return plaintext string
+    */
+    return cipherText
+}
+
+encryptPayload = func(plainText) {
+    /*
+    Example:
+    - AES or DES encrypt
+    - Base64 or hex encode
+    - return ciphertext string
+    */
+    return plainText
+}
+
+cacheRspTemplate = func(flowId, obj) {
+    rspTemplateCache[flowId] = obj
+}
+
+getRspTemplate = func(flowId) {
+    if flowId in rspTemplateCache {
+        return rspTemplateCache[flowId], true
+    }
+    return nil, false
+}
+
+decryptReqForView = func(packet) {
+    obj, ok = getBodyObj(packet)
+    if !ok {
+        return packet, false
+    }
+    if !(encryptedField in obj) {
+        return packet, false
+    }
+
+    plain = decryptPayload(obj[encryptedField])
+    plain = compactJsonIfPossible(plain)
+
+    packet = poc.ReplaceHTTPPacketBody(packet, plain)
+    packet = poc.ReplaceHTTPPacketHeader(packet, reqMarkerHeader, "1")
+    packet = fixReq(packet)
+    return packet, true
+}
+
+encryptReqForServer = func(packet) {
+    marker = poc.GetHTTPPacketHeader(packet, reqMarkerHeader)
+    if marker == "" {
+        return packet, false
+    }
+
+    plain = string(poc.GetHTTPPacketBody(packet))
+    plain = compactJsonIfPossible(plain)
+
+    newBody = json.dumps({
+        encryptedField: encryptPayload(plain),
+    })
+
+    packet = poc.ReplaceHTTPPacketBody(packet, newBody)
+    packet = poc.DeleteHTTPPacketHeader(packet, reqMarkerHeader)
+    packet = fixReq(packet)
+    return packet, true
+}
+
+decryptRspForView = func(req, packet) {
+    obj, ok = getBodyObj(packet)
+    if !ok {
+        return packet, false
+    }
+    if !(encryptedField in obj) {
+        return packet, false
+    }
+
+    flowId = makeFlowId(req)
+    cacheRspTemplate(flowId, obj)
+
+    plain = decryptPayload(obj[encryptedField])
+    plain = compactJsonIfPossible(plain)
+
+    packet = poc.ReplaceHTTPPacketBody(packet, plain)
+    packet = poc.ReplaceHTTPPacketHeader(packet, reqMarkerHeader, "1")
+    packet = poc.ReplaceHTTPPacketHeader(packet, flowIdHeader, flowId)
+    packet = fixRsp(packet)
+    return packet, true
+}
+
+encryptRspForClient = func(req, rsp) {
+    marker = poc.GetHTTPPacketHeader(rsp, reqMarkerHeader)
+    if marker == "" {
+        return rsp, false
+    }
+
+    flowId = poc.GetHTTPPacketHeader(rsp, flowIdHeader)
+    if flowId == "" {
+        flowId = makeFlowId(req)
+    }
+
+    tmpl, ok = getRspTemplate(flowId)
+    if !ok {
+        return rsp, false
+    }
+
+    plain = string(poc.GetHTTPPacketBody(rsp))
+    plain = compactJsonIfPossible(plain)
+    tmpl[encryptedField] = encryptPayload(plain)
+    newBody = json.dumps(tmpl)
+
+    rsp = poc.ReplaceHTTPPacketBody(rsp, newBody)
+    rsp = poc.DeleteHTTPPacketHeader(rsp, reqMarkerHeader)
+    rsp = poc.DeleteHTTPPacketHeader(rsp, flowIdHeader)
+    rsp = fixRsp(rsp)
+    return rsp, true
+}
+
+hijackHTTPRequest = func(isHttps, url, req, forward, drop) {
+    newReq, changed = decryptReqForView(req)
+    if changed {
+        forward(newReq)
+        return
+    }
+    forward(req)
+}
+
+hijackRequest = func(isHttps, url, req, forward, drop) {
+    hijackHTTPRequest(isHttps, url, req, forward, drop)
+}
+
+beforeRequest = func(req) {
+    newReq, changed = encryptReqForServer(req)
+    if changed {
+        return []byte(newReq)
+    }
+    return []byte(req)
+}
+
+hijackHTTPResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    newRsp, changed = decryptRspForView(req, rsp)
+    if changed {
+        forward(newRsp)
+        return
+    }
+    forward(rsp)
+}
+
+hijackResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    hijackHTTPResponseEx(isHttps, url, req, rsp, forward, drop)
+}
+
+afterRequest = func(isHttps, oreq, req, orsp, rsp) {
+    newRsp, changed = encryptRspForClient(oreq, rsp)
+    if changed {
+        return []byte(newRsp)
+    }
+    return []byte(rsp)
+}

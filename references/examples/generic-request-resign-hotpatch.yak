@@ -1,0 +1,87 @@
+/*
+Generic MITM hot patch for old-style request re-signing.
+
+Replace these placeholders before use:
+- TARGET_PATH
+- calcSign(...)
+- optional field defaults
+
+This template keeps request body readable and only updates fields before upstream.
+*/
+
+cli.check()
+
+targetPath = "/TARGET_PATH"
+defaultUserId = "0"
+
+isTarget = func(packet) {
+    path = poc.GetHTTPRequestPathWithoutQuery(packet)
+    if path == "" {
+        return false
+    }
+    return path == targetPath
+}
+
+calcSign = func(params) {
+    /*
+    Build your raw string here, then return final sign.
+    Example:
+    raw = params["a"] + params["b"] + "salt"
+    return str.ToUpper(codec.Md5(raw))
+    */
+    return ""
+}
+
+resignPacket = func(packet) {
+    if !isTarget(packet) {
+        return packet, false
+    }
+
+    params = poc.GetAllHTTPPacketPostParams(packet)
+    if params == nil {
+        return packet, false
+    }
+
+    if !("user_id" in params) || params["user_id"] == "" {
+        params["user_id"] = defaultUserId
+    }
+
+    newSign = calcSign(params)
+    if newSign == "" {
+        return packet, false
+    }
+
+    params["sign"] = newSign
+
+    packet = poc.ReplaceAllHTTPPacketPostParamsWithoutEscape(packet, params)
+    packet = poc.FixHTTPRequest(packet)
+    return packet, true
+}
+
+hijackHTTPRequest = func(isHttps, url, req, forward, drop) {
+    forward(req)
+}
+
+hijackRequest = func(isHttps, url, req, forward, drop) {
+    forward(req)
+}
+
+beforeRequest = func(req) {
+    newReq, changed = resignPacket(req)
+    if changed {
+        return []byte(newReq)
+    }
+    return []byte(req)
+}
+
+hijackHTTPResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    forward(rsp)
+}
+
+hijackResponseEx = func(isHttps, url, req, rsp, forward, drop) {
+    forward(rsp)
+}
+
+afterRequest = func(isHttps, oreq, req, orsp, rsp) {
+    return []byte(rsp)
+}
